@@ -7,10 +7,13 @@ import base64
 from starlette.middleware.sessions import SessionMiddleware
 import secrets
 import urllib.parse
+from app.core.db import Base, engine
 
 load_dotenv()
 
 app = FastAPI()
+
+Base.metadata.create_all(bind=engine)
 
 user_tokens = {}
 
@@ -34,14 +37,12 @@ def login(request: Request):
     state = secrets.token_urlsafe(16)
     request.session["oauth_state"] = state
 
-    redirect_uri = urllib.parse.quote(FIGMA_REDIRECT_URI, safe="")
-
     scope = "file_content:read file_metadata:read"
 
     figma_oauth_url = (
         "https://www.figma.com/oauth?"
         f"client_id={FIGMA_CLIENT_ID}"
-        f"&redirect_uri={redirect_uri}"
+        f"&redirect_uri={FIGMA_REDIRECT_URI}"
         f"&scope={urllib.parse.quote(scope)}"
         f"&response_type=code"
         f"&state={state}"
@@ -81,6 +82,7 @@ async def callback(request: Request, code: str, state: str = None):
         token_data = res.json()
 
         user_tokens['demo_user'] = token_data
+        print(user_tokens['demo_user'])
 
         return {
             "message": "Login success",
@@ -91,3 +93,22 @@ async def callback(request: Request, code: str, state: str = None):
        raise HTTPException(status_code=500, detail=str(e)) 
 
 
+@app.get("/get_figma_file_key")
+async def get_figma_file_key(file_url: str):
+
+    file_key = file_url.split("/")[-2]
+
+    print(file_key)
+
+    access_token = user_tokens['demo_user'].get("access_token")
+
+    headers = {
+        "Authorization": f"Bearer {access_token}"
+    }
+
+    async with httpx.AsyncClient() as client:
+        res = await client.get(f"https://api.figma.com/v1/files/{file_key}", headers=headers)
+
+    if res.status_code != 200:
+        raise HTTPException(status_code=400, detail=res.text)
+    return res.json()
