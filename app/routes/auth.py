@@ -20,8 +20,8 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     if not verify_password(password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect username or password")
 
-    token = create_access_token(data={"sub": user.email})
-    return {"access_token": token, "token_type": "bearer"}
+    token = create_access_token(data={"sub": str(user.id)})
+    return Token(access_token=token, token_type="bearer", expires_in=60 * 60, refresh_token='None')
 
 
 
