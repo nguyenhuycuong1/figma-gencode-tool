@@ -8,6 +8,7 @@ from starlette.middleware.sessions import SessionMiddleware
 import secrets
 import urllib.parse
 from app.core.db import Base, engine
+from app.routes import auth, user
 
 load_dotenv()
 
@@ -112,3 +113,6 @@ async def get_figma_file_key(file_url: str):
     if res.status_code != 200:
         raise HTTPException(status_code=400, detail=res.text)
     return res.json()
+
+app.include_router(auth.router)
+app.include_router(user.router)
