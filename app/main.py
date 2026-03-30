@@ -7,14 +7,13 @@ import base64
 from starlette.middleware.sessions import SessionMiddleware
 import secrets
 import urllib.parse
-from app.core.db import Base, engine
-from app.routes import auth, user
+from urllib.parse import urlparse, parse_qs
+from app.engine.figma_cleaner import FigmaCleaner
+
 
 load_dotenv()
 
 app = FastAPI()
-
-Base.metadata.create_all(bind=engine)
 
 user_tokens = {}
 
@@ -94,25 +93,52 @@ async def callback(request: Request, code: str, state: str = None):
        raise HTTPException(status_code=500, detail=str(e)) 
 
 
-@app.get("/get_figma_file_key")
-async def get_figma_file_key(file_url: str):
 
-    file_key = file_url.split("/")[-2]
+def extract_figma_info(figma_url: str):
+    parsed = urlparse(figma_url)
 
-    print(file_key)
+    path_parts = parsed.path.split("/")
+    file_key = None
+
+    for i, part in enumerate(path_parts):
+        if part in ["file", "design"]:
+            file_key = path_parts[i + 1]
+            break
+
+    if not file_key:
+        raise ValueError("Invalid Figma URL: cannot find file_key")
+
+    query = parse_qs(parsed.query)
+    node_id = query.get("node-id", [None])[0]
+
+    if node_id:
+        node_id = node_id.replace("-", ":")
+
+    return file_key, node_id
+
+@app.get("/parse_figma")
+async def parse_figma(figma_url: str):
+    file_key, node_id = extract_figma_info(figma_url)
 
     access_token = user_tokens['demo_user'].get("access_token")
-
     headers = {
         "Authorization": f"Bearer {access_token}"
     }
 
-    async with httpx.AsyncClient() as client:
-        res = await client.get(f"https://api.figma.com/v1/files/{file_key}", headers=headers)
+    async with httpx.AsyncClient(timeout=30.0) as client:
+
+        if node_id:
+            url = f"https://api.figma.com/v1/files/{file_key}/nodes?ids={node_id}"
+        else:
+            url = f"https://api.figma.com/v1/files/{file_key}"
+
+        res = await client.get(url, headers=headers)
 
     if res.status_code != 200:
         raise HTTPException(status_code=400, detail=res.text)
-    return res.json()
 
-app.include_router(auth.router)
-app.include_router(user.router)
+    return {
+        "file_key": file_key,
+        "node_id": node_id,
+        "data": res.json()
+    }
